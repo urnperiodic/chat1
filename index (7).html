@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Portal Chat — Live Network</title>
+<meta name="description" content="Realtime multi-channel chat with GIF search, custom password-protected rooms, and themeable UI." />
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Lucide Icons -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+<!-- Google Font -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+
+<!-- Firebase (compat build for plain script usage) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+  :root{
+    /* Theme tokens — overridden by JS theme switcher */
+    --bg:            #0a0d16;   /* main panel bg */
+    --bg-deep:       #070a11;   /* sidebar/header/footer bg */
+    --bg-elev:       #0d1222;   /* inputs / cards */
+    --bg-elev2:      #0e1627;   /* secondary cards */
+    --border:        rgba(255,255,255,.06);
+    --border-2:      rgba(255,255,255,.10);
+    --text:          #e2e8f0;
+    --text-dim:      #94a3b8;
+    --text-mute:     #64748b;
+    --accent:        #00e5b0;   /* primary accent */
+    --accent-ink:    #05131b;   /* text on accent */
+    --accent-soft:   rgba(0,229,176,.16);
+    --accent-glow:   rgba(0,229,176,.20);
+    --scheme:        dark;
+  }
+
+  html, body { height:100%; }
+  body{
+    margin:0;
+    font-family:'Inter',system-ui,sans-serif;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+      var(--bg-deep);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+  }
+  .font-mono{ font-family:'JetBrains Mono',monospace; }
+
+  /* Scrollbars */
+  .scrollbar-thin::-webkit-scrollbar{ width:6px; height:6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb{ background:var(--border-2); border-radius:99px; }
+  .scrollbar-none::-webkit-scrollbar{ display:none; }
+  .scrollbar-none{ -ms-overflow-style:none; scrollbar-width:none; }
+
+  /* Animations */
+  @keyframes fade-in{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
+  .animate-fade-in{ animation:fade-in .18s ease-out; }
+  @keyframes shake{ 0%,100%{transform:translateX(0);} 20%,60%{transform:translateX(-5px);} 40%,80%{transform:translateX(5px);} }
+  .animate-shake{ animation:shake .4s ease-in-out; }
+  @keyframes pop-in{ from{opacity:0; transform:scale(.94);} to{opacity:1; transform:scale(1);} }
+  .animate-pop{ animation:pop-in .16s ease-out; }
+
+  /* theme-aware helpers */
+  .surface       { background:var(--bg); }
+  .surface-deep  { background:var(--bg-deep); }
+  .surface-elev  { background:var(--bg-elev); }
+  .surface-elev2 { background:var(--bg-elev2); }
+  .bd            { border-color:var(--border); }
+  .bd2           { border-color:var(--border-2); }
+  .txt           { color:var(--text); }
+  .txt-dim       { color:var(--text-dim); }
+  .txt-mute      { color:var(--text-mute); }
+  .accent        { color:var(--accent); }
+  .accent-bg     { background:var(--accent); color:var(--accent-ink); }
+  .accent-bd     { border-color:color-mix(in srgb, var(--accent) 45%, transparent); }
+
+  ::selection{ background:var(--accent-soft); }
+
+  /* Light scheme readability tweaks */
+  [data-scheme="light"] .msg-text{ color:#1f2733; }
+  [data-scheme="light"] .placeholder-mute::placeholder{ color:#94a3b8; }
+</style>
+</head>
+
+<body>
+<div id="chat-root" class="fixed inset-0 md:inset-6 lg:inset-10">
+  <div class="flex w-full h-full surface txt overflow-hidden select-none rounded-none md:rounded-2xl md:border bd shadow-2xl relative">
+
+    <!-- ============ LEFT SIDEBAR: CHANNEL RAIL ============ -->
+    <aside class="hidden md:flex flex-col w-14 border-r bd surface-deep shrink-0 items-center py-3 gap-3">
+      <div class="flex flex-col items-center gap-0.5">
+        <div class="w-2.5 h-2.5 rounded-full animate-pulse" style="background:var(--accent)" title="Portal Chat Live Network"></div>
+        <span class="text-[7px] font-black font-mono tracking-widest accent">LIVE</span>
+      </div>
+
+      <nav id="channel-rail" class="flex-1 flex flex-col gap-1.5 w-full px-1 items-center justify-start pt-2 overflow-y-auto scrollbar-none"></nav>
+
+      <button id="add-channel-rail"
+        class="w-9 h-9 flex items-center justify-center rounded-xl transition-all border border-dashed border-white/20 hover:accent-bd txt-mute hover:accent hover:bg-white/5 cursor-pointer shrink-0"
+        title="Create Custom Channel">
+        <i data-lucide="plus" class="w-4 h-4"></i>
+      </button>
+
+      <!-- Theme trigger -->
+      <button id="theme-trigger"
+        class="w-9 h-9 flex items-center justify-center rounded-xl transition-all txt-mute hover:accent hover:bg-white/5 cursor-pointer shrink-0"
+        title="Change Theme">
+        <i data-lucide="palette" class="w-4 h-4"></i>
+      </button>
+    </aside>
+
+    <!-- ============ MAIN PANEL ============ -->
+    <section class="flex-1 flex flex-col h-full overflow-hidden surface">
+
+      <!-- HEADER -->
+      <header class="px-3 py-2 border-b bd surface-deep flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="txt-mute font-extrabold text-[11px] hidden md:inline">#</span>
+          <h1 id="active-channel-name" class="text-[11px] font-black txt tracking-tight flex items-center gap-1 uppercase truncate"></h1>
+          <div class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
+        </div>
+
+        <div class="hidden sm:flex items-center gap-1.5 shrink-0">
+          <div id="name-wrap" class="flex items-center gap-1 surface-elev border bd rounded-lg px-2 py-1 transition-all">
+            <i data-lucide="user" class="w-3 h-3 txt-mute shrink-0"></i>
+            <input id="nickname-desktop" type="text" placeholder="Set Nickname" maxlength="16"
+              class="bg-transparent text-[11px] font-extrabold txt outline-none w-20 md:w-24 placeholder-mute" />
+          </div>
+          <div class="flex items-center gap-1 surface-elev border bd rounded-lg px-2 py-1">
+            <i data-lucide="search" class="w-3 h-3 txt-mute shrink-0"></i>
+            <input id="filter-input" type="text" placeholder="Filter…"
+              class="bg-transparent text-[10px] txt-dim outline-none w-16 md:w-20 placeholder-mute" />
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1 shrink-0">
+          <select id="channel-select"
+            class="md:hidden surface-elev border bd py-1 px-1.5 rounded text-[10px] font-bold uppercase outline-none accent max-w-[110px]"></select>
+          <button id="theme-trigger-mobile" class="md:hidden p-1.5 hover:bg-white/10 txt-dim rounded transition-all cursor-pointer" title="Theme">
+            <i data-lucide="palette" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- MOBILE NICK ROW -->
+      <div class="flex md:hidden items-center justify-between p-1.5 px-3 border-b bd surface-elev2 shrink-0">
+        <span class="text-[9px] uppercase font-black txt-mute tracking-wider">Nick:</span>
+        <input id="nickname-mobile" type="text" placeholder="anonymous" maxlength="16"
+          class="surface-deep text-[11px] px-2 py-1 rounded outline-none border bd focus:accent-bd text-right max-w-[120px] font-extrabold txt placeholder-mute" />
+      </div>
+
+      <!-- UNLOCK GATE -->
+      <div id="unlock-gate" class="hidden flex-1 flex-col items-center justify-center p-6 text-center select-none">
+        <div class="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4 border border-amber-500/20">
+          <i data-lucide="lock" class="w-7 h-7 text-amber-500 animate-pulse"></i>
+        </div>
+        <h2 class="text-sm font-black uppercase txt tracking-wider"><span id="gate-name"></span></h2>
+        <p id="gate-desc" class="txt-dim text-[11px] mt-1 max-w-xs leading-relaxed"></p>
+        <form id="unlock-form" class="mt-5 w-full max-w-[220px] space-y-2">
+          <div class="relative flex items-center">
+            <i data-lucide="key" class="absolute left-3 w-4 h-4 txt-mute"></i>
+            <input id="unlock-input" type="password" placeholder="Join Code" required
+              class="w-full surface-elev border bd focus:accent-bd rounded-xl py-2.5 pl-10 pr-4 text-sm txt outline-none placeholder-mute font-mono tracking-widest text-center" />
+          </div>
+          <button type="submit" class="w-full accent-bg text-sm font-black uppercase py-2.5 rounded-xl transition-all active:scale-95 cursor-pointer">Join Channel</button>
+        </form>
+      </div>
+
+      <!-- MESSAGES -->
+      <div id="messages-panel" class="flex-1 overflow-y-auto px-3 py-3 space-y-3 scrollbar-thin"></div>
+
+      <!-- COMPOSER -->
+      <footer id="composer" class="p-2.5 border-t bd surface-deep shrink-0">
+
+        <!-- media preview -->
+        <div id="media-preview" class="hidden items-center gap-2 surface-elev border accent-bd p-1.5 rounded-xl mb-2 animate-fade-in">
+          <div class="w-12 h-12 rounded overflow-hidden bg-black/40 shrink-0">
+            <img id="media-preview-img" alt="Preview" class="w-full h-full object-cover" referrerpolicy="no-referrer" />
+          </div>
+          <div class="flex-1 min-w-0 text-left">
+            <p class="text-[10px] font-bold accent truncate">GIF / Image Attached</p>
+            <p id="media-preview-url" class="text-[9px] txt-mute truncate"></p>
+          </div>
+          <button id="media-clear" type="button" class="p-1 txt-dim hover:txt hover:bg-white/5 rounded-md cursor-pointer">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- GIF PANEL -->
+        <div id="gif-panel" class="hidden surface-deep border bd rounded-xl p-3 mb-2.5 space-y-2.5 animate-fade-in text-left">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] uppercase font-extrabold txt-dim tracking-wider flex items-center gap-1">
+              <i data-lucide="image" class="w-3 h-3 accent"></i> Search GIFs &amp; Memes
+            </span>
+            <button id="gif-close" type="button" class="txt-mute hover:txt text-xs cursor-pointer">Close</button>
+          </div>
+
+          <!-- GIF search bar -->
+          <form id="gif-search-form" class="flex gap-1.5">
+            <div class="flex-1 flex items-center gap-1.5 surface-elev border bd focus-within:accent-bd rounded-lg px-2.5">
+              <i data-lucide="search" class="w-3.5 h-3.5 txt-mute shrink-0"></i>
+              <input id="gif-search-input" type="text" placeholder="Search Giphy (e.g. cat, lol, wow)…"
+                class="flex-1 bg-transparent text-[11px] py-1.5 outline-none txt placeholder-mute" />
+            </div>
+            <button type="submit" class="accent-bg text-[10px] font-bold px-3 py-1.5 rounded-lg active:scale-95 transition-all cursor-pointer">Search</button>
+          </form>
+
+          <!-- trending / quick tags -->
+          <div id="gif-tags" class="flex items-center gap-1 flex-wrap"></div>
+
+          <!-- results grid -->
+          <div id="gif-results" class="grid grid-cols-4 gap-1.5 max-h-[168px] overflow-y-auto pr-1 scrollbar-thin"></div>
+          <p id="gif-status" class="text-[9px] txt-mute text-center hidden"></p>
+
+          <!-- paste URL -->
+          <div class="flex gap-1.5 pt-1.5 border-t bd">
+            <input id="gif-url-input" type="text" placeholder="…or paste any image / GIF URL"
+              class="flex-1 surface-elev border bd focus:accent-bd rounded-lg text-[10px] px-2.5 py-1.5 outline-none txt placeholder-mute" />
+            <button id="gif-url-apply" type="button" class="accent-bg text-[10px] font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition-all cursor-pointer">Apply</button>
+          </div>
+        </div>
+
+        <!-- emoji + gif toggle -->
+        <div class="flex items-center gap-1 mb-1.5 overflow-x-auto pb-0.5 select-none scrollbar-none">
+          <div id="emoji-row" class="flex items-center gap-1"></div>
+          <div class="h-4 w-px bg-white/10 mx-1.5 shrink-0"></div>
+          <button id="gif-toggle" type="button"
+            class="text-[10px] px-2.5 py-1 rounded-md transition-all font-mono font-bold flex items-center gap-1 cursor-pointer shrink-0 bg-white/5 txt-dim hover:accent hover:bg-white/10">
+            <i data-lucide="image" class="w-3 h-3 accent"></i><span>GIF &amp; Images</span>
+          </button>
+        </div>
+
+        <!-- input row -->
+        <form id="compose-form" class="flex items-center gap-1.5 surface-elev border bd rounded-xl p-1 transition-all focus-within:accent-bd">
+          <input id="compose-input" type="text" placeholder="⚠️ Set nickname" maxlength="300"
+            class="flex-1 bg-transparent border-none text-[12px] txt placeholder-mute pl-2 py-1.5 outline-none font-medium min-w-0" />
+          <button id="send-btn" type="submit"
+            class="p-2 rounded-lg transition-all flex items-center justify-center shrink-0 bg-neutral-700 text-neutral-400">
+            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+          </button>
+        </form>
+      </footer>
+    </section>
+
+    <!-- TOAST -->
+    <div id="toast" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 z-[60]">
+      <div class="bg-rose-500 text-white font-mono text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-lg shadow-lg shadow-black/50 animate-fade-in border border-rose-400">
+        <span id="toast-text"></span>
+      </div>
+    </div>
+
+    <!-- ============ CREATE CHANNEL MODAL ============ -->
+    <div id="create-modal" class="hidden absolute inset-0 bg-black/80 flex items-center justify-center p-4 z-[70] animate-fade-in backdrop-blur-sm">
+      <div class="surface border bd2 rounded-2xl w-full max-w-sm p-5 shadow-2xl flex flex-col gap-4 text-left animate-pop">
+        <div class="flex items-center justify-between border-b bd pb-2.5">
+          <h2 class="text-xs font-black uppercase accent tracking-wider flex items-center gap-1.5">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Create Custom Channel
+          </h2>
+          <button id="create-close" class="txt-mute hover:txt p-0.5 rounded hover:bg-white/5 transition-all cursor-pointer">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <form id="create-form" class="space-y-3.5">
+          <div class="space-y-1">
+            <label class="text-[10px] font-black uppercase tracking-wider txt-dim block">Channel Name <span class="text-rose-500">*</span></label>
+            <div class="relative flex items-center">
+              <span class="absolute left-3 txt-mute font-black text-xs">#</span>
+              <input id="new-chan-name" type="text" required maxlength="20" placeholder="e.g. secret-lounge"
+                class="w-full surface-deep border bd focus:accent-bd rounded-xl py-2 pl-7 pr-3 text-xs txt outline-none placeholder-mute font-bold" />
+            </div>
+            <span class="text-[8px] txt-mute block">Letters, numbers, dashes. Formatted lowercase.</span>
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black uppercase tracking-wider txt-dim block">Description</label>
+            <input id="new-chan-desc" type="text" maxlength="60" placeholder="e.g. Discussion room for cool stuff"
+              class="w-full surface-deep border bd focus:accent-bd rounded-xl py-2 px-3 text-xs txt outline-none placeholder-mute" />
+          </div>
+          <div class="space-y-1">
+            <label class="text-[10px] font-black uppercase tracking-wider txt-dim block flex items-center justify-between">
+              <span>Passcode <span class="txt-mute font-normal">(Optional)</span></span>
+              <span class="text-[8px] text-amber-500 font-bold flex items-center gap-0.5"><i data-lucide="lock" class="w-2 h-2"></i> Protect</span>
+            </label>
+            <div class="relative flex items-center">
+              <i data-lucide="key" class="absolute left-3 w-3.5 h-3.5 txt-mute"></i>
+              <input id="new-chan-pass" type="text" maxlength="16" placeholder="Leave empty for public"
+                class="w-full surface-deep border bd focus:accent-bd rounded-xl py-2 pl-9 pr-3 text-xs txt outline-none placeholder-mute font-mono" />
+            </div>
+          </div>
+          <div class="flex gap-2 pt-2.5 border-t bd">
+            <button type="button" id="create-cancel" class="flex-1 bg-white/5 hover:bg-white/10 txt text-[10px] font-black uppercase py-2 rounded-xl transition-all cursor-pointer">Cancel</button>
+            <button type="submit" class="flex-1 accent-bg text-[10px] font-black uppercase py-2 rounded-xl transition-all cursor-pointer">Create Channel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============ THEME MODAL ============ -->
+    <div id="theme-modal" class="hidden absolute inset-0 bg-black/80 flex items-center justify-center p-4 z-[70] animate-fade-in backdrop-blur-sm">
+      <div class="surface border bd2 rounded-2xl w-full max-w-md p-5 shadow-2xl flex flex-col gap-4 text-left animate-pop">
+        <div class="flex items-center justify-between border-b bd pb-2.5">
+          <h2 class="text-xs font-black uppercase accent tracking-wider flex items-center gap-1.5">
+            <i data-lucide="palette" class="w-3.5 h-3.5"></i> Theme
+          </h2>
+          <button id="theme-close" class="txt-mute hover:txt p-0.5 rounded hover:bg-white/5 transition-all cursor-pointer">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <!-- Compact dot picker (matches 2nd reference image) -->
+        <div id="theme-dots" class="flex items-center gap-2 surface-deep border bd rounded-full px-3 py-2 self-start"></div>
+
+        <!-- Swatch grid (matches 1st reference image) -->
+        <div id="theme-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   PORTAL CHAT — standalone (converted from React UserChat)
+   ============================================================ */
+
+/* ---------- Firebase ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyA_qbIeZ5rwP-8J5cMUYVlmtGdpwU7fr7Y",
+  authDomain: "chat-f9251.firebaseapp.com",
+  databaseURL: "https://chat-f9251-default-rtdb.firebaseio.com",
+  projectId: "chat-f9251",
+  storageBucket: "chat-f9251.firebasestorage.app",
+  messagingSenderId: "143049478376",
+  appId: "1:143049478376:web:10dd8fe116c3b9e473b95d",
+  measurementId: "G-57D0W1FZ87"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ---------- Basic banned words (client-side) ---------- */
+const BANNED = ["badword1","badword2"]; // extend as needed
+const isBlocked = (t) => {
+  const low = (t || "").toLowerCase();
+  return BANNED.some(w => w && low.includes(w));
+};
+
+/* ---------- Channels ---------- */
+const CHANNELS = [
+  { id:'general', name:'general',     description:'Main chat lobby connected with site network',        refPath:'messages' },
+  { id:'gaming',  name:'gaming-hub',  description:'Talk about games, reviews, highscores and cheats',   refPath:'messages_gaming' },
+  { id:'cinema',  name:'cinema-club', description:'Movie lists, TV reviews and stream discussion',       refPath:'messages_cinema' },
+  { id:'memes',   name:'memes',       description:'Fun room for memes, jokes and off-topic',             refPath:'messages_memes' }
+];
+
+const PRESET_GIFS = [
+  { name:'Cat Jam',         url:'https://media.giphy.com/media/GeimqsH0TLDt4tScGw/giphy.gif' },
+  { name:'Shocked Pikachu', url:'https://media.giphy.com/media/3kzJvEcif7i1y/giphy.gif' },
+  { name:'Popcat',          url:'https://media.giphy.com/media/kFgzrTt798d2w/giphy.gif' },
+  { name:'Success Kid',     url:'https://media.giphy.com/media/111ebonMs96Y6y/giphy.gif' },
+  { name:'Drake Yes',       url:'https://media.giphy.com/media/3o7qDEq2bMbcbPRVP2/giphy.gif' },
+  { name:'Mind Blown',      url:'https://media.giphy.com/media/2rqEdFksE54SGjgRxp/giphy.gif' },
+  { name:'Rickroll',        url:'https://media.giphy.com/media/Vuw9m5wXviFIQ/giphy.gif' }
+];
+
+/* Public Giphy demo/beta key (keyless-friendly for static demos). */
+const GIPHY_KEY = "GlVGYHkr3WSBnllca54iNt0yFbjz7jHD";
+const GIF_TAGS = ["trending","lol","cat","wow","dance","facepalm","fire","gg","cry","happy"];
+
+/* ---------- Themes (from reference images) ---------- */
+const THEMES = {
+  midnight: { label:'Midnight', scheme:'dark',  swatch:['#111625','#1B2336'], accent:'#00e5b0',
+    vars:{ '--bg':'#0a0d16','--bg-deep':'#070a11','--bg-elev':'#0d1222','--bg-elev2':'#0e1627','--accent':'#00e5b0','--accent-ink':'#05131b','--text':'#e2e8f0','--text-dim':'#94a3b8','--text-mute':'#64748b' } },
+  slate:    { label:'Slate', scheme:'dark', swatch:['#1C212E','#252C3B'], accent:'#93a4bd',
+    vars:{ '--bg':'#141922','--bg-deep':'#0f131b','--bg-elev':'#1c212e','--bg-elev2':'#222838','--accent':'#93a4bd','--accent-ink':'#0f131b','--text':'#e6eaf2','--text-dim':'#9aa5b8','--text-mute':'#6b7488' } },
+  ocean:    { label:'Ocean', scheme:'dark', swatch:['#0E273B','#143B59'], accent:'#4fb0e6',
+    vars:{ '--bg':'#081722','--bg-deep':'#050f18','--bg-elev':'#0e273b','--bg-elev2':'#123049','--accent':'#4fb0e6','--accent-ink':'#04121c','--text':'#e2edf5','--text-dim':'#8fb6d0','--text-mute':'#5f8298' } },
+  emerald:  { label:'Emerald', scheme:'dark', swatch:['#0C2B1B','#154C2D'], accent:'#3ddc84',
+    vars:{ '--bg':'#08160e','--bg-deep':'#050f0a','--bg-elev':'#0c2b1b','--bg-elev2':'#123c26','--accent':'#3ddc84','--accent-ink':'#04120a','--text':'#e0f2e8','--text-dim':'#8fc7a5','--text-mute':'#5d8a72' } },
+  sunset:   { label:'Sunset', scheme:'dark', swatch:['#331F16','#6E351C'], accent:'#ff8a4c',
+    vars:{ '--bg':'#1c1109','--bg-deep':'#150c06','--bg-elev':'#2b1a11','--bg-elev2':'#3a2216','--accent':'#ff8a4c','--accent-ink':'#1c0d04','--text':'#f5e6dc','--text-dim':'#d39c80','--text-mute':'#997060' } },
+  lavender: { label:'Lavender', scheme:'dark', swatch:['#241C3B','#493975'], accent:'#a78bfa',
+    vars:{ '--bg':'#150f26','--bg-deep':'#0f0b1c','--bg-elev':'#241c3b','--bg-elev2':'#2f2650','--accent':'#a78bfa','--accent-ink':'#120b24','--text':'#ece7f7','--text-dim':'#b6a9d6','--text-mute':'#7d729c' } },
+  light:    { label:'Light', scheme:'light', swatch:['#eaf0f6','#ffffff'], accent:'#2563eb',
+    vars:{ '--bg':'#f4f6fa','--bg-deep':'#eaf0f6','--bg-elev':'#ffffff','--bg-elev2':'#f0f3f8','--accent':'#2563eb','--accent-ink':'#ffffff','--text':'#1f2733','--text-dim':'#5a6273','--text-mute':'#8a93a3','--border':'rgba(0,0,0,.08)','--border-2':'rgba(0,0,0,.14)' } },
+  amoled:   { label:'AMOLED', scheme:'dark', swatch:['#080808','#000000'], accent:'#00e5b0',
+    vars:{ '--bg':'#000000','--bg-deep':'#000000','--bg-elev':'#0a0a0a','--bg-elev2':'#111111','--accent':'#00e5b0','--accent-ink':'#00120c','--text':'#f0f0f0','--text-dim':'#9aa0aa','--text-mute':'#666b74','--border':'rgba(255,255,255,.08)','--border-2':'rgba(255,255,255,.14)' } }
+};
+const THEME_ORDER = ['midnight','slate','ocean','emerald','sunset','lavender','light','amoled'];
+
+/* ---------- State ---------- */
+const state = {
+  activeChannel: CHANNELS[0],
+  messages: [],
+  chatName: localStorage.getItem('chat_name') || '',
+  mediaUrl: '',
+  searchFilter: '',
+  gifOpen: false,
+  customChannels: [],
+  localChannels: safeParse('local_custom_channels', []),
+  unlocked: safeParse('unlocked_chat_channels', {}),
+  theme: localStorage.getItem('chat_theme') || 'midnight',
+  listenerRef: null
+};
+
+function safeParse(key, fallback){ try{ const s=localStorage.getItem(key); return s?JSON.parse(s):fallback; }catch(e){ return fallback; } }
+
+/* ---------- Helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function allChannels(){
+  return [
+    ...CHANNELS,
+    ...state.localChannels,
+    ...state.customChannels.filter(c => !state.localChannels.some(lc => lc.id===c.id || lc.name===c.name))
+  ];
+}
+function currentChannel(){
+  return allChannels().find(c => c.id === state.activeChannel.id) || state.activeChannel;
+}
+function isCurrentLocked(){
+  const c = currentChannel();
+  return c.isPasswordProtected && !state.unlocked[c.id];
+}
+
+function getUsernameHue(name){
+  let h=0; const n = name || 'anonymous';
+  for(let i=0;i<n.length;i++) h=(h*31+n.charCodeAt(i))&0xffff;
+  return [160,180,200,260,290,320,340][h%7];
+}
+function formatDateLabel(ts){
+  const d=new Date(ts), t=new Date();
+  if(d.toDateString()===t.toDateString()) return 'Today';
+  const y=new Date(t); y.setDate(t.getDate()-1);
+  if(d.toDateString()===y.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'});
+}
+const formatTime = (ts) => new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+function isImageUrl(url){
+  if(typeof url!=='string') return false;
+  const u=url.trim().toLowerCase();
+  return u.endsWith('.gif')||u.endsWith('.png')||u.endsWith('.jpg')||u.endsWith('.jpeg')||u.endsWith('.webp')||
+    u.startsWith('data:image/')||
+    (u.startsWith('http') && (u.includes('media.giphy.com')||u.includes('tenor.com/view')||u.includes('media.tenor.com')));
+}
+function getLocalMessages(id){ return safeParse(`local_messages_${id}`, []); }
+
+let toastTimer=null;
+function toast(msg){
+  $('toast-text').textContent = msg;
+  $('toast').classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=> $('toast').classList.add('hidden'), 2800);
+}
+function refreshIcons(){ if(window.lucide) lucide.createIcons(); }
+
+/* ============================================================
+   THEME
+   ============================================================ */
+function applyTheme(key){
+  const t = THEMES[key] || THEMES.midnight;
+  const root = document.documentElement;
+  // reset overridable border tokens to defaults first
+  root.style.removeProperty('--border');
+  root.style.removeProperty('--border-2');
+  Object.entries(t.vars).forEach(([k,v]) => root.style.setProperty(k, v));
+  root.style.setProperty('--accent-soft', `color-mix(in srgb, ${t.vars['--accent']} 16%, transparent)`);
+  root.style.setProperty('--accent-glow', `color-mix(in srgb, ${t.vars['--accent']} 22%, transparent)`);
+  root.setAttribute('data-scheme', t.scheme);
+  state.theme = key;
+  localStorage.setItem('chat_theme', key);
+  renderThemePickers();
+}
+
+function renderThemePickers(){
+  // Dot picker
+  const dots = THEME_ORDER.map(key => {
+    const t = THEMES[key];
+    const active = state.theme===key;
+    return `<button data-theme="${key}" title="${t.label} Theme"
+      class="theme-dot w-6 h-6 rounded-full shrink-0 transition-all ${active?'ring-2 ring-white scale-110':'hover:scale-110 opacity-80 hover:opacity-100'}"
+      style="background:linear-gradient(135deg, ${t.swatch[0]}, ${t.swatch[1]}); border:1px solid rgba(255,255,255,.15)"></button>`;
+  }).join('');
+  $('theme-dots').innerHTML = dots;
+
+  // Swatch grid
+  const grid = THEME_ORDER.map(key => {
+    const t = THEMES[key];
+    const active = state.theme===key;
+    return `<button data-theme="${key}"
+      class="theme-swatch group relative rounded-xl p-3 h-20 flex flex-col justify-end text-left border transition-all cursor-pointer ${active?'ring-2 ring-offset-1':''}"
+      style="background:linear-gradient(135deg, ${t.swatch[0]}, ${t.swatch[1]}); border-color:rgba(255,255,255,.10); ${active?`--tw-ring-color:${t.accent}; ring-offset-color:var(--bg);`:''}">
+      <span class="text-[11px] font-black tracking-tight" style="color:${t.accent}">${t.label}</span>
+      ${active?`<span class="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center" style="background:${t.accent}"><i data-lucide="check" class="w-2.5 h-2.5" style="color:#000"></i></span>`:''}
+    </button>`;
+  }).join('');
+  $('theme-grid').innerHTML = grid;
+
+  document.querySelectorAll('.theme-dot,.theme-swatch').forEach(el=>{
+    el.addEventListener('click', ()=> applyTheme(el.dataset.theme));
+  });
+  refreshIcons();
+}
+
+/* ============================================================
+   RENDER: channels
+   ============================================================ */
+function channelIcon(ch, locked){
+  if(ch.id==='general') return 'message-square';
+  if(ch.id==='gaming')  return 'gamepad-2';
+  if(ch.id==='cinema')  return 'film';
+  if(ch.id==='memes')   return 'laugh';
+  if(ch.isPasswordProtected) return locked?'lock':'unlock';
+  return 'hash';
+}
+
+function renderChannels(){
+  const rail = $('channel-rail');
+  const cur = currentChannel();
+  rail.innerHTML = allChannels().map(ch => {
+    const active = cur.id===ch.id;
+    const locked = ch.isPasswordProtected && !state.unlocked[ch.id];
+    return `<button data-chan="${ch.id}"
+      class="chan-btn w-9 h-9 flex items-center justify-center rounded-xl transition-all relative group cursor-pointer shrink-0 ${active?'accent border accent-bd':'txt-mute hover:txt hover:bg-white/5'}"
+      style="${active?'background:var(--accent-soft)':''}"
+      title="${esc(ch.name)} — ${esc(ch.description)}">
+      <i data-lucide="${channelIcon(ch,locked)}" class="w-4 h-4 shrink-0"></i>
+      <span class="absolute left-11 top-1/2 -translate-y-1/2 surface border bd2 text-[9px] txt font-semibold rounded px-2 py-1 shadow-lg whitespace-nowrap hidden group-hover:block z-50">
+        <span class="font-extrabold uppercase accent">#${esc(ch.name)}</span>
+        ${ch.isPasswordProtected?'<span class="text-[7px] text-amber-500 font-bold ml-1">(Protected)</span>':''}
+        <span class="block text-[8px] txt-mute font-normal max-w-[160px] truncate">${esc(ch.description)}</span>
+      </span>
+    </button>`;
+  }).join('');
+
+  rail.querySelectorAll('.chan-btn').forEach(b=>{
+    b.addEventListener('click', ()=> switchChannel(b.dataset.chan));
+  });
+
+  // mobile select
+  const sel = $('channel-select');
+  sel.innerHTML = allChannels().map(c=>{
+    const locked = c.isPasswordProtected && !state.unlocked[c.id];
+    return `<option value="${c.id}" ${cur.id===c.id?'selected':''}>${locked?'🔒 ':''}#${esc(c.name)}</option>`;
+  }).join('') + `<option value="__add__">+ CREATE</option>`;
+
+  refreshIcons();
+}
+
+function renderHeader(){
+  const c = currentChannel();
+  $('active-channel-name').innerHTML =
+    (c.isPasswordProtected?'<i data-lucide="lock" class="w-3 h-3 text-amber-500 shrink-0"></i>':'') + `<span>${esc(c.name)}</span>`;
+  refreshIcons();
+}
+
+/* ============================================================
+   RENDER: messages
+   ============================================================ */
+function displayedMessages(){
+  const q = state.searchFilter.trim().toLowerCase();
+  if(!q) return state.messages;
+  return state.messages.filter(m =>
+    (m.name||'').toLowerCase().includes(q) || (m.text||'').toLowerCase().includes(q));
+}
+
+function renderMessages(){
+  const panel = $('messages-panel');
+  const gate = $('unlock-gate');
+  const composer = $('composer');
+
+  if(isCurrentLocked()){
+    const c = currentChannel();
+    panel.classList.add('hidden');
+    composer.classList.add('hidden');
+    gate.classList.remove('hidden'); gate.classList.add('flex');
+    $('gate-name').textContent = '#'+c.name;
+    $('gate-desc').textContent = c.description || 'This channel is password protected. Enter the passcode to join.';
+    refreshIcons();
+    return;
+  }
+  gate.classList.add('hidden'); gate.classList.remove('flex');
+  panel.classList.remove('hidden');
+  composer.classList.remove('hidden');
+
+  const msgs = displayedMessages();
+  if(msgs.length===0){
+    panel.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center p-4 txt-mute">
+      <div class="text-2xl animate-bounce mb-2">💬</div>
+      <h3 class="text-[11px] font-bold uppercase tracking-wider txt-dim">${state.searchFilter?'No matches':'Beginning of Chat'}</h3>
+    </div>`;
+    return;
+  }
+
+  let html='', prevDate=null;
+  msgs.forEach(m=>{
+    const label = formatDateLabel(m.timestamp||Date.now());
+    if(label!==prevDate){
+      html += `<div class="flex items-center gap-2 py-1 select-none">
+        <div class="flex-1 h-px bg-white/5"></div>
+        <span class="text-[8px] font-bold font-mono txt-mute uppercase tracking-wider">${label}</span>
+        <div class="flex-1 h-px bg-white/5"></div></div>`;
+      prevDate=label;
+    }
+    const img = m.imageUrl || (isImageUrl(m.text)?m.text:null);
+    html += `<div class="flex flex-col gap-0.5 hover:bg-white/[0.02] px-1 rounded transition-all group">
+      <div class="flex items-baseline gap-1.5">
+        <span class="text-[11px] font-extrabold font-mono tracking-tight" style="color:hsl(${getUsernameHue(m.name)},75%,var(--u-l,65%))">${esc(m.name||'anonymous')}</span>
+        <span class="text-[8px] txt-mute font-mono">${formatTime(m.timestamp||Date.now())}</span>
+      </div>
+      ${m.text && !isImageUrl(m.text) ? `<div class="msg-text text-[12px] leading-normal break-words pl-0.5" style="color:var(--text)">${esc(m.text)}</div>`:''}
+      ${img?`<div class="mt-1 rounded-lg overflow-hidden max-w-[240px] border bd2 shadow-sm bg-black/30">
+        <img src="${esc(img)}" alt="Shared media" class="w-full h-auto max-h-[160px] object-contain hover:scale-105 transition-all duration-300" referrerpolicy="no-referrer" onerror="this.style.display='none'"/>
+      </div>`:''}
+    </div>`;
+  });
+  panel.innerHTML = html;
+  panel.scrollTop = panel.scrollHeight;
+}
+
+/* ============================================================
+   CHANNEL SUBSCRIPTION
+   ============================================================ */
+function subscribeChannel(){
+  // detach old
+  if(state.listenerRef){ try{ state.listenerRef.off(); }catch(e){} state.listenerRef=null; }
+  state.messages = [];
+
+  const c = currentChannel();
+  renderHeader(); renderChannels();
+
+  if(isCurrentLocked()){ renderMessages(); return; }
+
+  // local fallback first
+  state.messages = getLocalMessages(c.id);
+  renderMessages();
+
+  const q = db.ref(c.refPath).limitToLast(100);
+  state.listenerRef = q;
+  q.on('child_added', (snap)=>{
+    const data = snap.val(); if(!data) return;
+    if(state.messages.some(m=>m.key===snap.key)) return;
+    state.messages = state.messages.filter(m => !(m.isLocalTemp && m.text===data.text && m.name===data.name));
+    state.messages.push({...data, key:snap.key});
+    renderMessages();
+  }, (err)=> console.warn('Firebase read error:', err));
+}
+
+function switchChannel(id){
+  const target = allChannels().find(c=>c.id===id);
+  if(!target) return;
+  state.activeChannel = target;
+  state.searchFilter=''; $('filter-input').value='';
+  subscribeChannel();
+}
+
+/* ============================================================
+   CUSTOM CHANNELS SYNC
+   ============================================================ */
+db.ref('custom_channels').on('value', (snap)=>{
+  const val = snap.val();
+  if(val){
+    state.customChannels = Object.keys(val).map(key=>({
+      id:key,
+      name: val[key].name || 'custom-room',
+      description: val[key].description || 'Custom chat room',
+      refPath: `custom_messages_${key}`,
+      isPasswordProtected: !!val[key].password,
+      password: val[key].password || ''
+    }));
+  } else state.customChannels=[];
+  renderChannels();
+}, (err)=> console.warn('custom_channels read error (local fallback ok):', err));
+
+/* ============================================================
+   SEND MESSAGE
+   ============================================================ */
+function setSendState(){
+  const btn = $('send-btn');
+  const hasName = state.chatName.trim();
+  const hasContent = $('compose-input').value.trim() || state.mediaUrl;
+  const form = $('compose-form');
+  const input = $('compose-input');
+
+  input.disabled = !hasName;
+  input.placeholder = hasName ? 'Write message…' : '⚠️ Set nickname';
+  form.classList.toggle('opacity-40', !hasName);
+
+  if(hasName && hasContent){
+    btn.className = "p-2 rounded-lg transition-all flex items-center justify-center shrink-0 accent-bg hover:scale-105 active:scale-95 cursor-pointer font-bold";
+  } else {
+    btn.className = "p-2 rounded-lg transition-all flex items-center justify-center shrink-0 bg-neutral-700 text-neutral-400";
+  }
+}
+
+function sendMessage(){
+  if(!state.chatName.trim()){
+    const form=$('compose-form');
+    form.classList.add('animate-shake');
+    $('name-wrap').classList.add('!border-rose-500');
+    ($('nickname-desktop')||{}).focus && $('nickname-desktop').focus();
+    toast('Please enter a nickname to chat!');
+    setTimeout(()=>{ form.classList.remove('animate-shake'); $('name-wrap').classList.remove('!border-rose-500'); },900);
+    return;
+  }
+  const text = $('compose-input').value.trim();
+  if(!text && !state.mediaUrl) return;
+  if(text && isBlocked(text)){ toast('⚠️ That word is blocked.'); return; }
+
+  const ts=Date.now();
+  const c = currentChannel();
+  const msgData = { name:state.chatName.trim(), text: text || 'Sent a GIF/Image', imageUrl: state.mediaUrl||null, timestamp:ts, isLocalTemp:true, key:`local_${ts}_${Math.random()}` };
+
+  // local persist
+  const locals = getLocalMessages(c.id);
+  localStorage.setItem(`local_messages_${c.id}`, JSON.stringify([...locals, msgData].slice(-100)));
+
+  if(!state.messages.some(m=>m.text===msgData.text && m.timestamp===ts && m.name===msgData.name)){
+    state.messages.push(msgData); renderMessages();
+  }
+
+  db.ref(c.refPath).push({ name:msgData.name, text:msgData.text, imageUrl:state.mediaUrl||null, timestamp:ts })
+    .catch(err=> console.warn('Firebase send failed (local kept):', err));
+
+  clearMedia();
+  $('compose-input').value='';
+  setSendState();
+  $('compose-input').focus();
+}
+
+/* ============================================================
+   MEDIA / GIF
+   ============================================================ */
+function setMedia(url){
+  state.mediaUrl = url;
+  if(url){
+    $('media-preview').classList.remove('hidden'); $('media-preview').classList.add('flex');
+    $('media-preview-img').src = url;
+    $('media-preview-url').textContent = url;
+  } else clearMedia();
+  setSendState();
+}
+function clearMedia(){
+  state.mediaUrl='';
+  $('media-preview').classList.add('hidden'); $('media-preview').classList.remove('flex');
+}
+
+function renderGifTags(){
+  $('gif-tags').innerHTML = GIF_TAGS.map(t=>
+    `<button data-tag="${t}" class="gif-tag text-[9px] px-2 py-0.5 rounded-full bg-white/5 txt-dim hover:accent hover:bg-white/10 transition-all cursor-pointer">${t}</button>`
+  ).join('');
+  $('gif-tags').querySelectorAll('.gif-tag').forEach(b=>{
+    b.addEventListener('click', ()=>{ $('gif-search-input').value = b.dataset.tag==='trending'?'':b.dataset.tag; searchGifs(b.dataset.tag); });
+  });
+}
+
+function renderGifResults(items){
+  const grid=$('gif-results');
+  grid.innerHTML = items.map(g=>
+    `<button data-url="${esc(g.url)}" class="gif-item group relative h-14 rounded overflow-hidden bg-black/40 border bd hover:accent-bd active:scale-95 transition-all cursor-pointer" title="${esc(g.name||'gif')}">
+      <img src="${esc(g.preview||g.url)}" alt="${esc(g.name||'gif')}" class="w-full h-full object-cover" referrerpolicy="no-referrer" loading="lazy"/>
+    </button>`
+  ).join('');
+  grid.querySelectorAll('.gif-item').forEach(b=>{
+    b.addEventListener('click', ()=>{ setMedia(b.dataset.url); closeGif(); });
+  });
+}
+
+async function searchGifs(term){
+  const status=$('gif-status');
+  const q = (term && term!=='trending') ? term.trim() : '';
+  status.classList.remove('hidden');
+  status.textContent = 'Loading…';
+  try{
+    const endpoint = q
+      ? `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=24&rating=pg-13&bundle=fixed_height`
+      : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=24&rating=pg-13&bundle=fixed_height`;
+    const res = await fetch(endpoint);
+    if(!res.ok) throw new Error('Giphy HTTP '+res.status);
+    const json = await res.json();
+    const items = (json.data||[]).map(g=>({
+      name: g.title,
+      url: (g.images.original||{}).url || (g.images.downsized||{}).url,
+      preview: (g.images.fixed_height_small||g.images.fixed_height||g.images.downsized||{}).url
+    })).filter(g=>g.url);
+    if(items.length){ renderGifResults(items); status.classList.add('hidden'); }
+    else { renderGifResults(PRESET_GIFS); status.textContent='No results — showing presets.'; }
+  }catch(err){
+    console.warn('Giphy search failed, using presets:', err);
+    renderGifResults(PRESET_GIFS);
+    status.textContent='Search unavailable — showing preset memes.';
+  }
+}
+
+function openGif(){
+  state.gifOpen=true;
+  $('gif-panel').classList.remove('hidden');
+  $('gif-toggle').classList.add('accent-bg');
+  $('gif-toggle').classList.remove('bg-white/5','txt-dim');
+  if(!$('gif-results').children.length) searchGifs('trending');
+  $('gif-search-input').focus();
+}
+function closeGif(){
+  state.gifOpen=false;
+  $('gif-panel').classList.add('hidden');
+  $('gif-toggle').classList.remove('accent-bg');
+  $('gif-toggle').classList.add('bg-white/5','txt-dim');
+}
+
+/* ============================================================
+   EMOJI
+   ============================================================ */
+const EMOJIS = ['🔥','💀','💯','😂','👑','😮','🎮','🍿'];
+function renderEmoji(){
+  $('emoji-row').innerHTML = EMOJIS.map(e=>
+    `<button data-emoji="${e}" class="emoji-btn hover:scale-125 rounded p-0.5 text-sm transition-all active:scale-95 cursor-pointer">${e}</button>`
+  ).join('');
+  $('emoji-row').querySelectorAll('.emoji-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      if(!state.chatName.trim()){ toast('Set name first!'); ($('nickname-desktop')||{}).focus&&$('nickname-desktop').focus(); return; }
+      const inp=$('compose-input'); inp.value += b.dataset.emoji; setSendState(); inp.focus();
+    });
+  });
+}
+
+/* ============================================================
+   CREATE CHANNEL
+   ============================================================ */
+function createChannel(e){
+  if(e) e.preventDefault();
+  const raw = $('new-chan-name').value.trim();
+  if(!raw){ toast('Channel name is required!'); return; }
+  const clean = raw.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-_]/g,'');
+  if(!clean){ toast('Invalid channel name.'); return; }
+  if(allChannels().some(c=>c.name.toLowerCase()===clean)){ toast('Channel name already exists!'); return; }
+
+  const ref = db.ref('custom_channels').push();
+  const id = ref.key || `local_chan_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+  const pass = $('new-chan-pass').value.trim();
+  const desc = $('new-chan-desc').value.trim() || 'A custom chat room';
+
+  const obj = { id, name:clean, description:desc, refPath:`custom_messages_${id}`, isPasswordProtected:!!pass, password:pass };
+  state.localChannels = [...state.localChannels, obj];
+  localStorage.setItem('local_custom_channels', JSON.stringify(state.localChannels));
+
+  if(pass){ state.unlocked[id]=true; localStorage.setItem('unlocked_chat_channels', JSON.stringify(state.unlocked)); }
+
+  state.activeChannel = obj;
+  $('new-chan-name').value=''; $('new-chan-desc').value=''; $('new-chan-pass').value='';
+  $('create-modal').classList.add('hidden');
+  toast(`Channel #${clean} created!`);
+  subscribeChannel();
+
+  ref.set({ name:clean, description:desc, password:pass||null }).catch(err=> console.warn('channel sync failed:', err));
+}
+
+/* ============================================================
+   UNLOCK
+   ============================================================ */
+function unlockChannel(e){
+  if(e) e.preventDefault();
+  const c = currentChannel();
+  if($('unlock-input').value === c.password){
+    state.unlocked[c.id]=true;
+    localStorage.setItem('unlocked_chat_channels', JSON.stringify(state.unlocked));
+    $('unlock-input').value='';
+    toast('🔓 Channel unlocked!');
+    subscribeChannel();
+  } else toast('❌ Incorrect passcode!');
+}
+
+/* ============================================================
+   WIRE UP EVENTS
+   ============================================================ */
+function bindNick(inp){
+  if(!inp) return;
+  inp.value = state.chatName;
+  inp.addEventListener('input', ()=>{
+    state.chatName = inp.value;
+    localStorage.setItem('chat_name', inp.value);
+    // sync both fields
+    ['nickname-desktop','nickname-mobile'].forEach(id=>{ const el=$(id); if(el&&el!==inp) el.value=inp.value; });
+    setSendState();
+  });
+}
+
+function init(){
+  applyTheme(state.theme);
+  renderEmoji();
+  renderGifTags();
+  bindNick($('nickname-desktop'));
+  bindNick($('nickname-mobile'));
+  setSendState();
+  subscribeChannel();
+
+  // header controls
+  $('filter-input').addEventListener('input', (e)=>{ state.searchFilter=e.target.value; renderMessages(); });
+  $('channel-select').addEventListener('change', (e)=>{
+    if(e.target.value==='__add__'){ $('create-modal').classList.remove('hidden'); refreshIcons(); return; }
+    switchChannel(e.target.value);
+  });
+
+  // compose
+  $('compose-form').addEventListener('submit', (e)=>{ e.preventDefault(); sendMessage(); });
+  $('compose-input').addEventListener('input', setSendState);
+  $('compose-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
+
+  // media
+  $('media-clear').addEventListener('click', clearMedia);
+
+  // gif panel
+  $('gif-toggle').addEventListener('click', ()=> state.gifOpen?closeGif():openGif());
+  $('gif-close').addEventListener('click', closeGif);
+  $('gif-search-form').addEventListener('submit', (e)=>{ e.preventDefault(); searchGifs($('gif-search-input').value); });
+  $('gif-url-apply').addEventListener('click', ()=>{
+    const v=$('gif-url-input').value.trim(); if(v){ setMedia(v); $('gif-url-input').value=''; closeGif(); }
+  });
+
+  // create modal
+  $('add-channel-rail').addEventListener('click', ()=>{ $('create-modal').classList.remove('hidden'); refreshIcons(); });
+  $('create-close').addEventListener('click', ()=> $('create-modal').classList.add('hidden'));
+  $('create-cancel').addEventListener('click', ()=> $('create-modal').classList.add('hidden'));
+  $('create-form').addEventListener('submit', createChannel);
+
+  // unlock
+  $('unlock-form').addEventListener('submit', unlockChannel);
+
+  // theme modal
+  $('theme-trigger').addEventListener('click', ()=>{ $('theme-modal').classList.remove('hidden'); refreshIcons(); });
+  $('theme-trigger-mobile').addEventListener('click', ()=>{ $('theme-modal').classList.remove('hidden'); refreshIcons(); });
+  $('theme-close').addEventListener('click', ()=> $('theme-modal').classList.add('hidden'));
+
+  // close modals on backdrop click
+  ['create-modal','theme-modal'].forEach(id=>{
+    $(id).addEventListener('click', (e)=>{ if(e.target.id===id) $(id).classList.add('hidden'); });
+  });
+
+  refreshIcons();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
