@@ -104,6 +104,13 @@
         <i data-lucide="plus" class="w-4 h-4"></i>
       </button>
 
+      <!-- Moderation menu -->
+      <button id="moderation-trigger"
+        class="w-9 h-9 flex items-center justify-center rounded-xl transition-all txt-mute hover:accent hover:bg-white/5 cursor-pointer shrink-0"
+        title="Moderation Settings">
+        <i data-lucide="shield" class="w-4 h-4"></i>
+      </button>
+
       <!-- Theme trigger -->
       <button id="theme-trigger"
         class="w-9 h-9 flex items-center justify-center rounded-xl transition-all txt-mute hover:accent hover:bg-white/5 cursor-pointer shrink-0"
@@ -317,6 +324,47 @@
       </div>
     </div>
 
+    <!-- ============ MODERATION MODAL ============ -->
+    <div id="moderation-modal" class="hidden absolute inset-0 bg-black/80 flex items-center justify-center p-4 z-[70] animate-fade-in backdrop-blur-sm">
+      <div class="surface border bd2 rounded-2xl w-full max-w-md p-5 shadow-2xl flex flex-col gap-4 text-left animate-pop max-h-[80vh] overflow-y-auto scrollbar-thin">
+        <div class="flex items-center justify-between border-b bd pb-2.5 sticky top-0 bg-inherit">
+          <h2 class="text-xs font-black uppercase accent tracking-wider flex items-center gap-1.5">
+            <i data-lucide="shield" class="w-3.5 h-3.5"></i> Moderation
+          </h2>
+          <button id="moderation-close" class="txt-mute hover:txt p-0.5 rounded hover:bg-white/5 transition-all cursor-pointer">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3.5">
+          <!-- Blocked words section -->
+          <div class="space-y-2">
+            <h3 class="text-[10px] font-black uppercase tracking-wider txt-dim flex items-center gap-1.5">
+              <i data-lucide="ban" class="w-3.5 h-3.5"></i> Blocked Words
+            </h3>
+            <p class="text-[9px] txt-mute">Words matching these patterns will be blocked from messages.</p>
+
+            <!-- Add word form -->
+            <form id="add-blocked-word-form" class="flex gap-1.5">
+              <input id="new-blocked-word" type="text" placeholder="Add word to block…" maxlength="30"
+                class="flex-1 surface-elev border bd focus:accent-bd rounded-lg text-[10px] px-2.5 py-1.5 outline-none txt placeholder-mute" />
+              <button type="submit" class="accent-bg text-[10px] font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition-all cursor-pointer">Add</button>
+            </form>
+
+            <!-- Blocked words list -->
+            <div id="blocked-words-list" class="space-y-1 max-h-[200px] overflow-y-auto scrollbar-thin">
+              <!-- populated by JS -->
+            </div>
+
+            <!-- Stats -->
+            <div class="text-[9px] txt-mute pt-2 border-t bd">
+              <span id="blocked-count">0</span> words blocked
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -339,12 +387,262 @@ const firebaseConfig = {
 if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-/* ---------- Basic banned words (client-side) ---------- */
-const BANNED = ["badword1","badword2"]; // extend as needed
-const isBlocked = (t) => {
-  const low = (t || "").toLowerCase();
-  return BANNED.some(w => w && low.includes(w));
+/* ---------- Blocked Words Management ---------- */
+const state_blockedWords = {
+  list: safeParse('blocked_words_list', ['fuck', 'shit', 'ass', 'bitch', 'bastard', 'crap', 'piss', 'dick', 'cock',
+  'pussy', 'cunt', 'whore', 'slut', 'fag', 'nigga', 'nigger', 'kike', 'spic',
+  'wetback', 'cracker', 'dyke', 'tranny', 'rape', 'molest', 'pedo', 'kill yourself',
+  'abbo', 'abo', 'abortion', 'abuse', 'addict', 'addicts', 'adult', 'africa',
+  'african', 'alla', 'allah', 'alligatorbait', 'amateur', 'anal', 'analannie',
+  'analsex', 'angie', 'anus', 'arab', 'arabs', 'areola', 'argie', 'aroused',
+  'arse', 'arsehole', 'asian', 'assassin', 'assassinate', 'assassination',
+  'assault', 'assbagger', 'assblaster', 'assclown', 'asscowboy', 'asses',
+  'assfuck', 'assfucker', 'asshat', 'asshole', 'assholes', 'asshore',
+  'assjockey', 'asskiss', 'asskisser', 'assklown', 'asslick', 'asslicker',
+  'asslover', 'assman', 'assmonkey', 'assmunch', 'assmuncher', 'asspacker',
+  'asspirate', 'asspuppies', 'assranger', 'asswhore', 'asswipe', 'athletesfoot',
+  'attack', 'australian', 'babe', 'babies', 'backdoor', 'backdoorman',
+  'backseat', 'badfuck', 'balllicker', 'balls', 'ballsack', 'banging', 'baptist',
+  'barelylegal', 'barf', 'barface', 'barfface', 'bast', 'bastard', 'bazongas',
+  'bazooms', 'beaner', 'pipe', 'tip', 'orgies', 'bum', 'fk', 'gooned', 'goon',
+  'beast', 'beastality', 'beastial', 'beastiality', 'beatoff', 'beat-off',
+  'beatyourmeat', 'beaver', 'bestial', 'bestiality', 'bi', 'biatch', 'bible',
+  'bicurious', 'bigass', 'bigbastard', 'bigbutt', 'bigger', 'bisexual',
+  'bi-sexual', 'bitch', 'bitcher', 'bitches', 'bitchez', 'bitchp', 'bitchs',
+  'bitchy', 'biteme', 'black', 'blackman', 'blackout', 'blacks', 'blind',
+  'blow', 'blowjob', 'boang', 'bogan', 'bohunk', 'bollick', 'bollock', 'bomb',
+  'bombers', 'bombing', 'bombs', 'bomd', 'bondage', 'boner', 'bong', 'boob',
+  'boobies', 'boobs', 'booby', 'boody', 'boom', 'boong', 'boonga', 'boonie',
+  'booty', 'bootycall', 'bountybar', 'bra', 'brea5t', 'breast', 'breastjob',
+  'breastlover', 'breastman', 'brothel', 'bugger', 'buggered', 'buggery',
+  'bullcrap', 'bulldike', 'bulldyke', 'bullshit', 'bumblefuck', 'bumfuck',
+  'bunga', 'bunghole', 'buried', 'burn', 'butchbabes', 'butchdike', 'butchdyke',
+  'butt', 'buttbang', 'butt-bang', 'buttface', 'buttfuck', 'butt-fuck',
+  'buttfucker', 'butt-fucker', 'buttfuckers', 'butt-fuckers', 'butthead',
+  'buttman', 'buttmunch', 'buttmuncher', 'buttpirate', 'inside', 'creampie',
+  'caked', 'cream', 'buttplug', 'buttstain', 'byatch', 'cacker', 'cameljockey',
+  'cameltoe', 'canadian', 'cancer', 'carpetmuncher', 'carruth', 'catholic',
+  'catholics', 'cemetery', 'chav', 'cherrypopper', 'chickslick', 'children\'s',
+  'chin', 'chinaman', 'chinamen', 'chinese', 'chink', 'chinky', 'choad', 'chode',
+  'christ', 'christian', 'church', 'cigarette', 'cigs', 'clamdigger',
+  'clamdiver', 'clit', 'clitoris', 'clogwog', 'cocaine', 'cock', 'cockblock',
+  'cockblocker', 'cockcowboy', 'cockfight', 'cockhead', 'cockknob', 'cocklicker',
+  'cocklover', 'cocknob', 'cockqueen', 'cockrider', 'cocksman', 'cocksmith',
+  'cocksmoker', 'cocksucer', 'cocksuck', 'cocksucked', 'cocksucker',
+  'cocksucking', 'cocktail', 'cocktease', 'cocky', 'cohee', 'coitus', 'color',
+  'colored', 'coloured', 'commie', 'communist', 'condom', 'conservative',
+  'conspiracy', 'coolie', 'cooly', 'coon', 'coondog', 'copulate', 'cornhole',
+  'corruption', 'cra5h', 'crabs', 'crack', 'crackpipe', 'crackwhore',
+  'crack-whore', 'crap', 'crapola', 'crapper', 'crappy', 'crash', 'creamy',
+  'crime', 'crimes', 'criminal', 'criminals', 'crotch', 'crotchjockey',
+  'crotchmonkey', 'crotchrot', 'cum', 'cumbubble', 'cumfest', 'cumjockey',
+  'cumm', 'cummer', 'cumming', 'cumquat', 'cumqueen', 'cumshot', 'cunilingus',
+  'cunillingus', 'cunn', 'cunnilingus', 'cunntt', 'cunt', 'cunteyed', 'cuntfuck',
+  'cuntfucker', 'cuntlick', 'cuntlicker', 'cuntlicking', 'cuntsucker',
+  'cybersex', 'cyberslimer', 'dago', 'dahmer', 'dammit', 'damn', 'damnation',
+  'damnit', 'darkie', 'darky', 'datnigga', 'dead', 'deapthroat', 'death',
+  'deepthroat', 'defecate', 'dego', 'demon', 'deposit', 'desire', 'destroy',
+  'deth', 'devil', 'devilworshipper', 'dick', 'dickbrain', 'dickforbrains',
+  'dickhead', 'dickless', 'dicklick', 'dicklicker', 'dickman', 'dickwad',
+  'dickweed', 'diddle', 'die', 'died', 'dies', 'dike', 'dildo', 'dingleberry',
+  'dink', 'dipshit', 'dipstick', 'dirty', 'disease', 'diseases', 'disturbed',
+  'dive', 'dix', 'dixiedike', 'dixiedyke', 'doggiestyle', 'doggystyle', 'dong',
+  'doodoo', 'doo-doo', 'boom', 'dope', 'dragqueen', 'dragqween', 'dripdick',
+  'drug', 'drunk', 'drunken', 'dumb', 'dumbass', 'dumbbitch', 'dumbfuck',
+  'dyefly', 'dyke', 'easyslut', 'eatballs', 'eatme', 'eatpussy', 'ecstacy',
+  'ejaculate', 'ejaculated', 'ejaculating', 'ejaculation', 'enema', 'enemy',
+  'erect', 'erection', 'ero', 'escort', 'ethiopian', 'ethnic', 'european',
+  'evl', 'excrement', 'execute', 'executed', 'execution', 'executioner',
+  'explosion', 'facefucker', 'faeces', 'fag', 'fagging', 'faggot', 'fagot',
+  'failed', 'failure', 'fairies', 'fairy', 'faith', 'fannyfucker', 'fart',
+  'farted', 'farting', 'farty', 'fastfuck', 'fat', 'fatah', 'fatass', 'fatfuck',
+  'fatfucker', 'fatso', 'fckcum', 'fear', 'feces', 'felatio', 'felch',
+  'felcher', 'felching', 'fellatio', 'feltch', 'feltchar', 'feltching',
+  'fetish', 'fight', 'filipina', 'filipino', 'fingerfood', 'fingerfuck',
+  'fingerfucked', 'fingerfucker', 'fingerfuckers', 'fingerfucking', 'fire',
+  'firing', 'fister', 'fistfuck', 'fistfucked', 'fistfucker', 'fistfucking',
+  'fisting', 'flange', 'flasher', 'flatulence', 'floo', 'flydie', 'flydye',
+  'fok', 'fondle', 'footaction', 'footfuck', 'footfucker', 'footlicker',
+  'footstar', 'fore', 'foreskin', 'forni', 'fornicate', 'foursome',
+  'fourtwenty', 'fraud', 'freakfuck', 'freakyfucker', 'freefuck', 'fu', 'fubar',
+  'fuc', 'fucck', 'fuck', 'fucka', 'fuckable', 'fuckbag', 'fuckbuddy', 'fucked',
+  'fuckedup', 'fucker', 'fuckers', 'fuckface', 'fuckfest', 'fuckfreak',
+  'fuckfriend', 'fuckhead', 'fuckher', 'fuckin', 'fuckina', 'fucking',
+  'fuckingbitch', 'fuckinnuts', 'fuckinright', 'fuckit', 'fuckknob', 'fuckme',
+  'fuckmehard', 'fuckmonkey', 'fuckoff', 'fuckpig', 'fucks', 'fucktard',
+  'fuckwhore', 'fuckyou', 'fudgepacker', 'fugly', 'fuk', 'fuks', 'funeral',
+  'funfuck', 'fungus', 'fuuck', 'gangbang', 'gangbanged', 'gangbanger',
+  'gangsta', 'gatorbait', 'gay', 'gaymuthafuckinwhore', 'gaysex', 'geez',
+  'geezer', 'geni', 'genital', 'german', 'getiton', 'gin', 'ginzo', 'gipp',
+  'girls', 'givehead', 'glazeddonut', 'gob', 'god', 'godammit', 'goddamit',
+  'goddammit', 'goddamn', 'goddamned', 'goddamnes', 'goddamnit',
+  'goddamnmuthafucker', 'goldenshower', 'gonorrehea', 'gonzagas', 'gook',
+  'gotohell', 'goy', 'goyim', 'greaseball', 'gringo', 'groe', 'gross',
+  'grostulation', 'gubba', 'gummer', 'gun', 'gyp', 'gypo', 'gypp', 'gyppie',
+  'gyppo', 'gyppy', 'hamas', 'handjob', 'hapa', 'harder', 'hardon', 'harem',
+  'headfuck', 'headlights', 'hebe', 'heeb', 'henhouse', 'heroin', 'herpes',
+  'heterosexual', 'hijack', 'hijacker', 'hijacking', 'hillbillies', 'hindoo',
+  'hiscock', 'hitler', 'hitlerism', 'hitlerist', 'hiv', 'ho', 'hobo', 'hodgie',
+  'hoes', 'hole', 'holestuffer', 'homicide', 'homo', 'homobangers',
+  'homosexual', 'honger', 'honk', 'honkers', 'honkey', 'honky', 'hook',
+  'hooker', 'hookers', 'hooters', 'hore', 'hork', 'horn', 'horney', 'horniest',
+  'horny', 'horseshit', 'hosejob', 'hoser', 'hostage', 'hotdamn', 'hotpussy',
+  'hottotrot', 'hummer', 'husky', 'hussy', 'hustler', 'hymen', 'hymie',
+  'iblowu', 'idiot', 'ikey', 'illegal', 'incest', 'insest', 'intercourse',
+  'interracial', 'intheass', 'inthebuff', 'israel', 'israeli', 'israel\'s',
+  'italiano', 'itch', 'jackass', 'jackoff', 'jackshit', 'jacktheripper', 'jade',
+  'jap', 'japanese', 'japcrap', 'jebus', 'jeez', 'jerkoff', 'jesus',
+  'jesuschrist', 'jew', 'jewish', 'jiga', 'jigaboo', 'jigg', 'jigga', 'jiggabo',
+  'jigger', 'jiggy', 'jihad', 'jijjiboo', 'jimfish', 'jism', 'jiz', 'jizim',
+  'jizjuice', 'jizm', 'jizz', 'jizzim', 'jizzum', 'joint', 'juggalo', 'jugs',
+  'junglebunny', 'kaffer', 'mad', 'mafia', 'magicwand', 'mams', 'manhater',
+  'manpaste', 'marijuana', 'mastabate', 'mastabater', 'masterbate',
+  'masterblaster', 'mastrabator', 'masturbate', 'masturbating',
+  'mattressprincess', 'meatbeatter', 'meatrack', 'meth', 'mexican', 'mgger',
+  'mggor', 'mickeyfinn', 'mideast', 'milf', 'minority', 'mockey', 'mockie',
+  'mocky', 'mofo', 'moky', 'moles', 'molest', 'molestation', 'molester',
+  'molestor', 'moneyshot', 'mooncricket', 'mormon', 'moron', 'moslem',
+  'mosshead', 'mothafuck', 'mothafucka', 'mothafuckz', 'mothafucked',
+  'mothafucker', 'mothafuckin', 'mothafucking', 'motherfuck', 'motherfucked',
+  'motherfucker', 'motherfuckin', 'motherfucking', 'motherfuckings',
+  'motherlovebone', 'muff', 'muffdive', 'muffdiver', 'muffindiver',
+  'mufflikcer', 'mulatto', 'muncher', 'munt', 'murder', 'murderer', 'muslim',
+  'naked', 'narcotic', 'nasty', 'nastybitch', 'nastyho', 'nastyslut',
+  'nastywhore', 'nazi', 'necro', 'negro', 'negroes', 'negroid', 'negro\'s',
+  'nig', 'niger', 'nigerian', 'nigerians', 'nigg', 'nigga', 'niggah',
+  'niggaracci', 'niggard', 'niggarded', 'niggardedness', 'niggarding',
+  'niggardliness', 'niggardly', 'niggards', 'niggard\'s', 'niggaz', 'nigger',
+  'niggerhead', 'niggerhole', 'niggers', 'nigger\'s', 'niggle', 'niggled',
+  'niggles', 'niggling', 'nigglings', 'niggor', 'niggur', 'niglet', 'nignog',
+  'nigr', 'nigra', 'nigre', 'nip', 'nipple', 'nipplering', 'nittit', 'nlgger',
+  'nlggor', 'nofuckingway', 'nook', 'nookey', 'nookie', 'noonan', 'nooner',
+  'nude', 'nudger', 'nuke', 'nutfucker', 'nymph', 'ontherag', 'oral', 'orga',
+  'orgasim', 'orgasm', 'orgies', 'orgy', 'osama', 'paki', 'palesimian',
+  'palestinian', 'pansies', 'pansy', 'panti', 'panties', 'payo',
+  'pearlnecklace', 'peck', 'pecker', 'peckerwood', 'pee', 'peehole', 'pee-pee',
+  'peepshow', 'peepshpw', 'pendy', 'penetration', 'peni5', 'penile', 'penis',
+  'penises', 'penthouse', 'period', 'perv', 'phonesex', 'phuk', 'phuked',
+  'phuking', 'phukked', 'phukking', 'phungky', 'phuq', 'pi55', 'picaninny',
+  'piccaninny', 'pickaninny', 'piker', 'pkey', 'piky', 'pimp', 'pimped',
+  'pimper', 'pimpjuic', 'pimpjuice', 'pimpsimp', 'pindick', 'piss', 'pissed',
+  'pisser', 'pisses', 'pisshead', 'pissin', 'pissing', 'pissoff', 'pistol',
+  'pixie', 'pixy', 'playboy', 'playgirl', 'pocha', 'pocho', 'pocketpool', 'pohm',
+  'polack', 'pom', 'pommie', 'pommy', 'poo', 'poon', 'poontang', 'poop',
+  'pooper', 'pooperscooper', 'pooping', 'poorwhitetrash', 'popimp',
+  'porchmonkey', 'porn', 'pornflick', 'pornking', 'porno', 'pornography',
+  'pornprincess', 'pot', 'poverty', 'premature', 'pric', 'prick', 'prickhead',
+  'primetime', 'propaganda', 'pros', 'prostitute', 'protestant', 'pu55i',
+  'pu55y', 'pube', 'pubic', 'pubiclice', 'pud', 'pudboy', 'pudd', 'puddboy',
+  'puke', 'puntang', 'purinapricness', 'puss', 'pussie', 'pussies', 'pussy',
+  'pussycat', 'pussyeater', 'pussyfucker', 'pussylicker', 'pussylips',
+  'pussylover', 'pussypounder', 'pusy', 'quashie', 'queef', 'queer', 'quickie',
+  'quim', 'ra8s', 'rabbi', 'racial', 'racist', 'radical', 'radicals', 'raghead',
+  'randy', 'rape', 'raped', 'raper', 'rapist', 'rearend', 'rearentry', 'rectum',
+  'redlight', 'redneck', 'reefer', 'reestie', 'refugee', 'reject', 'remains',
+  'rentafuck', 'republican', 'rere', 'retard', 'retarded', 'ribbed', 'rigger',
+  'rimjob', 'rimming', 'roach', 'robber', 'roundeye', 'rump', 'russki',
+  'russkie', 'sadis', 'sadom', 'samckdaddy', 'sandm', 'sandnigger', 'satan',
+  'scag', 'scallywag', 'scat', 'schlong', 'screw', 'screwyou', 'scrotum', 'scum',
+  'semen', 'seppo', 'servant', 'sex', 'sexed', 'sexfarm', 'sexhound',
+  'sexhouse', 'sexing', 'sexkitten', 'sexpot', 'sexslave', 'sextogo', 'sextoy',
+  'sextoys', 'sexual', 'sexually', 'sexwhore', 'sexy', 'sexymoma', 'sexy-slim',
+  'shag', 'shaggin', 'shagging', 'shat', 'shav', 'shawtypimp', 'sheeney',
+  'shhit', 'shinola', 'shit', 'shitcan', 'shitdick', 'shite', 'shiteater',
+  'shited', 'shitface', 'shitfaced', 'shitfit', 'shitforbrains', 'shitfuck',
+  'shitfucker', 'shitfull', 'shithapens', 'shithappens', 'shithead',
+  'shithouse', 'shiting', 'shitlist', 'shitola', 'shitoutofluck', 'shits',
+  'shitstain', 'shitted', 'shitter', 'shitting', 'shitty', 'shoot', 'shooting',
+  'shortfuck', 'showtime', 'sick', 'sissy', 'sixsixsix', 'sixtynine',
+  'sixtyniner', 'skank', 'skankbitch', 'skankfuck', 'skankwhore', 'skanky',
+  'skankybitch', 'skankywhore', 'skinflute', 'skum', 'skumbag', 'slant',
+  'slanteye', 'slapper', 'slaughter', 'slav', 'slave', 'slavedriver',
+  'sleezebag', 'sleezeball', 'slideitin', 'slime', 'slimeball', 'slimebucket',
+  'slopehead', 'slopey', 'slopy', 'slut', 'sluts', 'slutt', 'slutting',
+  'slutty', 'slutwear', 'slutwhore', 'smack', 'smackthemonkey', 'smut', 'snatch',
+  'snatchpatch', 'snigger', 'sniggered', 'sniggering', 'sniggers', 'sniper',
+  'snot', 'snowback', 'snownigger', 'sob', 'sodom', 'sodomise', 'sodomite',
+  'sodomize', 'sodomy', 'sonofabitch', 'sonofbitch', 'sooty', 'sos', 'soviet',
+  'spaghettibender', 'spaghettinigger', 'spank', 'spankthemonkey', 'sperm',
+  'spermacide', 'spermbag', 'spermhearder', 'spermherder', 'spic', 'spick',
+  'spig', 'spigotty', 'spik', 'spit', 'spitter', 'splittail', 'spooge',
+  'spreadeagle', 'spunk', 'spunky', 'squaw', 'stagg', 'stiffy', 'strapon',
+  'stringer', 'stripclub', 'stroke', 'stroking', 'stupid', 'stupidfuck',
+  'stupidfucker', 'suck', 'suckdick', 'sucker', 'suckme', 'suckmyass',
+  'suckmydick', 'suckmytit', 'suckoff', 'suicide', 'swallow', 'swallower',
+  'swalow', 'swastika', 'sweetness', 'syphilis', 'taboo', 'taff', 'tampon',
+  'tang', 'tantra', 'tarbaby', 'tard', 'teat', 'terror', 'terrorist', 'teste',
+  'testicle', 'testicles', 'thicklips', 'thirdeye', 'thirdleg', 'threesome',
+  'threeway', 'timbernigger', 'tinkle', 'tit', 'titbitnipply', 'titfuck',
+  'titfucker', 'titfuckin', 'titjob', 'titlicker', 'titlover', 'tits', 'tittie',
+  'titties', 'titty', 'tnt', 'toilet', 'tongethruster', 'tongue',
+  'tonguethrust', 'tonguetramp', 'tortur', 'torture', 'tosser', 'towelhead',
+  'trailertrash', 'tramp', 'trannie', 'tranny', 'transexual', 'transsexual',
+  'transvestite', 'triplex', 'trisexual', 'trojan', 'trots', 'tuckahoe',
+  'tunneloflove', 'turd', 'turnon', 'twink', 'twinkie', 'twobitwhore', 'uck',
+  'uk', 'unfuckable', 'upskirt', 'uptheass', 'upthebutt', 'urinary', 'urinate',
+  'urine', 'usama', 'uterus', 'vagina', 'vaginal', 'vatican', 'vibr', 'vibrater',
+  'vibrator', 'vietcong', 'violence', 'virgin', 'virginbreaker', 'vomit',
+  'vulva', 'wab', 'wank', 'wanker', 'wanking', 'waysted', 'weapon', 'weenie',
+  'weewee', 'welcher', 'welfare', 'wetb', 'wetback', 'wetspot', 'whacker',
+  'whash', 'whigger', 'whiskey', 'whiskeydick', 'whiskydick', 'whit',
+  'whitenigger', 'whites', 'whitetrash', 'whitey', 'whiz', 'whop', 'whore',
+  'whorefucker', 'whorehouse', 'wigger', 'willie', 'williewanker', 'willy',
+  'wn', 'wog', 'women\'s', 'wop', 'wtf', 'wuss', 'wuzzie', 'xtc', 'xxx',
+  'yankee', 'yellowman', 'zigabo', 'zipperhead']),
 };
+
+function getBlockedWords(){
+  return state_blockedWords.list || [];
+}
+
+function addBlockedWord(word){
+  const clean = word.trim().toLowerCase();
+  if(!clean){ toast('Word cannot be empty'); return false; }
+  if(clean.length > 30){ toast('Word too long (max 30 chars)'); return false; }
+  if(state_blockedWords.list.includes(clean)){ toast('Word already blocked'); return false; }
+  state_blockedWords.list.push(clean);
+  localStorage.setItem('blocked_words_list', JSON.stringify(state_blockedWords.list));
+  renderBlockedWordsList();
+  return true;
+}
+
+function removeBlockedWord(word){
+  state_blockedWords.list = state_blockedWords.list.filter(w => w !== word);
+  localStorage.setItem('blocked_words_list', JSON.stringify(state_blockedWords.list));
+  renderBlockedWordsList();
+}
+
+function isBlocked(text){
+  const low = (text || '').toLowerCase();
+  return getBlockedWords().some(w => w && low.includes(w));
+}
+
+function renderBlockedWordsList(){
+  const list = $('blocked-words-list');
+  const words = getBlockedWords();
+  
+  if(words.length === 0){
+    list.innerHTML = '<p class="text-[9px] txt-mute italic py-2">No blocked words yet</p>';
+  } else {
+    list.innerHTML = words.map(w => `
+      <div class="flex items-center justify-between gap-2 surface-elev border bd rounded-lg p-1.5 animate-fade-in">
+        <div class="flex-1">
+          <code class="text-[9px] font-mono accent">${esc(w)}</code>
+        </div>
+        <button data-word="${esc(w)}" class="remove-word-btn p-1 txt-dim hover:txt hover:bg-rose-500/10 rounded transition-all cursor-pointer" title="Remove">
+          <i data-lucide="trash-2" class="w-3 h-3"></i>
+        </button>
+      </div>
+    `).join('');
+    
+    list.querySelectorAll('.remove-word-btn').forEach(btn => {
+      btn.addEventListener('click', () => removeBlockedWord(btn.dataset.word));
+    });
+  }
+  
+  $('blocked-count').textContent = words.length;
+  refreshIcons();
+}
 
 /* ---------- Channels ---------- */
 const CHANNELS = [
@@ -371,21 +669,29 @@ const GIF_TAGS = ["trending","lol","cat","wow","dance","facepalm","fire","gg","c
 /* ---------- Themes (from reference images) ---------- */
 const THEMES = {
   midnight: { label:'Midnight', scheme:'dark',  swatch:['#111625','#1B2336'], accent:'#00e5b0',
-    vars:{ '--bg':'#0a0d16','--bg-deep':'#070a11','--bg-elev':'#0d1222','--bg-elev2':'#0e1627','--accent':'#00e5b0','--accent-ink':'#05131b','--text':'#e2e8f0','--text-dim':'#94a3b8','--text-mute':'#64748b' } },
+    vars:{ '--bg':'#0a0d16','--bg-deep':'#070a11','--bg-elev':'#0d1222','--bg-elev2':'#0e1627','--accent':'#00e5b0','--accent-ink':'#05131b','--text':'#e2e8f0','--text-dim':'#94a3b8','--text-mute':'#64748b','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   slate:    { label:'Slate', scheme:'dark', swatch:['#1C212E','#252C3B'], accent:'#93a4bd',
-    vars:{ '--bg':'#141922','--bg-deep':'#0f131b','--bg-elev':'#1c212e','--bg-elev2':'#222838','--accent':'#93a4bd','--accent-ink':'#0f131b','--text':'#e6eaf2','--text-dim':'#9aa5b8','--text-mute':'#6b7488' } },
+    vars:{ '--bg':'#141922','--bg-deep':'#0f131b','--bg-elev':'#1c212e','--bg-elev2':'#222838','--accent':'#93a4bd','--accent-ink':'#0f131b','--text':'#e6eaf2','--text-dim':'#9aa5b8','--text-mute':'#6b7280','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   ocean:    { label:'Ocean', scheme:'dark', swatch:['#0E273B','#143B59'], accent:'#4fb0e6',
-    vars:{ '--bg':'#081722','--bg-deep':'#050f18','--bg-elev':'#0e273b','--bg-elev2':'#123049','--accent':'#4fb0e6','--accent-ink':'#04121c','--text':'#e2edf5','--text-dim':'#8fb6d0','--text-mute':'#5f8298' } },
+    vars:{ '--bg':'#081722','--bg-deep':'#050f18','--bg-elev':'#0e273b','--bg-elev2':'#123049','--accent':'#4fb0e6','--accent-ink':'#04121c','--text':'#e2edf5','--text-dim':'#8fb6d0','--text-mute':'#546e7a','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   emerald:  { label:'Emerald', scheme:'dark', swatch:['#0C2B1B','#154C2D'], accent:'#3ddc84',
-    vars:{ '--bg':'#08160e','--bg-deep':'#050f0a','--bg-elev':'#0c2b1b','--bg-elev2':'#123c26','--accent':'#3ddc84','--accent-ink':'#04120a','--text':'#e0f2e8','--text-dim':'#8fc7a5','--text-mute':'#5d8a72' } },
+    vars:{ '--bg':'#08160e','--bg-deep':'#050f0a','--bg-elev':'#0c2b1b','--bg-elev2':'#123c26','--accent':'#3ddc84','--accent-ink':'#04120a','--text':'#e0f2e8','--text-dim':'#8fc7a5','--text-mute':'#558b6f','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   sunset:   { label:'Sunset', scheme:'dark', swatch:['#331F16','#6E351C'], accent:'#ff8a4c',
-    vars:{ '--bg':'#1c1109','--bg-deep':'#150c06','--bg-elev':'#2b1a11','--bg-elev2':'#3a2216','--accent':'#ff8a4c','--accent-ink':'#1c0d04','--text':'#f5e6dc','--text-dim':'#d39c80','--text-mute':'#997060' } },
+    vars:{ '--bg':'#1c1109','--bg-deep':'#150c06','--bg-elev':'#2b1a11','--bg-elev2':'#3a2216','--accent':'#ff8a4c','--accent-ink':'#1c0d04','--text':'#f5e6dc','--text-dim':'#d39c80','--text-mute':'#9a7066','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   lavender: { label:'Lavender', scheme:'dark', swatch:['#241C3B','#493975'], accent:'#a78bfa',
-    vars:{ '--bg':'#150f26','--bg-deep':'#0f0b1c','--bg-elev':'#241c3b','--bg-elev2':'#2f2650','--accent':'#a78bfa','--accent-ink':'#120b24','--text':'#ece7f7','--text-dim':'#b6a9d6','--text-mute':'#7d729c' } },
+    vars:{ '--bg':'#150f26','--bg-deep':'#0f0b1c','--bg-elev':'#241c3b','--bg-elev2':'#2f2650','--accent':'#a78bfa','--accent-ink':'#120b24','--text':'#ece7f7','--text-dim':'#b6a9d6','--text-mute':'#7c7a95','--border':'rgba(255,255,255,.06)','--border-2':'rgba(255,255,255,.10)' }
+  },
   light:    { label:'Light', scheme:'light', swatch:['#eaf0f6','#ffffff'], accent:'#2563eb',
-    vars:{ '--bg':'#f4f6fa','--bg-deep':'#eaf0f6','--bg-elev':'#ffffff','--bg-elev2':'#f0f3f8','--accent':'#2563eb','--accent-ink':'#ffffff','--text':'#1f2733','--text-dim':'#5a6273','--text-mute':'#8a93a3','--border':'rgba(0,0,0,.08)','--border-2':'rgba(0,0,0,.14)' } },
+    vars:{ '--bg':'#f4f6fa','--bg-deep':'#eaf0f6','--bg-elev':'#ffffff','--bg-elev2':'#f0f3f8','--accent':'#2563eb','--accent-ink':'#ffffff','--text':'#1f2733','--text-dim':'#5a6273','--text-mute':'#8492a6','--border':'rgba(0,0,0,.08)','--border-2':'rgba(0,0,0,.12)' }
+  },
   amoled:   { label:'AMOLED', scheme:'dark', swatch:['#080808','#000000'], accent:'#00e5b0',
-    vars:{ '--bg':'#000000','--bg-deep':'#000000','--bg-elev':'#0a0a0a','--bg-elev2':'#111111','--accent':'#00e5b0','--accent-ink':'#00120c','--text':'#f0f0f0','--text-dim':'#9aa0aa','--text-mute':'#666b74','--border':'rgba(255,255,255,.08)','--border-2':'rgba(255,255,255,.14)' } }
+    vars:{ '--bg':'#000000','--bg-deep':'#000000','--bg-elev':'#0a0a0a','--bg-elev2':'#111111','--accent':'#00e5b0','--accent-ink':'#00120c','--text':'#f0f0f0','--text-dim':'#9aa0aa','--text-mute':'#6f7a89','--border':'rgba(255,255,255,.04)','--border-2':'rgba(255,255,255,.08)' }
+  }
 };
 const THEME_ORDER = ['midnight','slate','ocean','emerald','sunset','lavender','light','amoled'];
 
@@ -463,9 +769,6 @@ function refreshIcons(){ if(window.lucide) lucide.createIcons(); }
 function applyTheme(key){
   const t = THEMES[key] || THEMES.midnight;
   const root = document.documentElement;
-  // reset overridable border tokens to defaults first
-  root.style.removeProperty('--border');
-  root.style.removeProperty('--border-2');
   Object.entries(t.vars).forEach(([k,v]) => root.style.setProperty(k, v));
   root.style.setProperty('--accent-soft', `color-mix(in srgb, ${t.vars['--accent']} 16%, transparent)`);
   root.style.setProperty('--accent-glow', `color-mix(in srgb, ${t.vars['--accent']} 22%, transparent)`);
@@ -476,7 +779,6 @@ function applyTheme(key){
 }
 
 function renderThemePickers(){
-  // Dot picker
   const dots = THEME_ORDER.map(key => {
     const t = THEMES[key];
     const active = state.theme===key;
@@ -486,7 +788,6 @@ function renderThemePickers(){
   }).join('');
   $('theme-dots').innerHTML = dots;
 
-  // Swatch grid
   const grid = THEME_ORDER.map(key => {
     const t = THEMES[key];
     const active = state.theme===key;
@@ -540,7 +841,6 @@ function renderChannels(){
     b.addEventListener('click', ()=> switchChannel(b.dataset.chan));
   });
 
-  // mobile select
   const sel = $('channel-select');
   sel.innerHTML = allChannels().map(c=>{
     const locked = c.isPasswordProtected && !state.unlocked[c.id];
@@ -613,7 +913,7 @@ function renderMessages(){
       </div>
       ${m.text && !isImageUrl(m.text) ? `<div class="msg-text text-[12px] leading-normal break-words pl-0.5" style="color:var(--text)">${esc(m.text)}</div>`:''}
       ${img?`<div class="mt-1 rounded-lg overflow-hidden max-w-[240px] border bd2 shadow-sm bg-black/30">
-        <img src="${esc(img)}" alt="Shared media" class="w-full h-auto max-h-[160px] object-contain hover:scale-105 transition-all duration-300" referrerpolicy="no-referrer" onerror="this.style.display='none'"/>
+        <img src="${esc(img)}" alt="Shared media" class="w-full h-auto max-h-[160px] object-contain hover:scale-105 transition-all duration-300" referrerpolicy="no-referrer" onerror="this.style.display='none'" />
       </div>`:''}
     </div>`;
   });
@@ -625,7 +925,6 @@ function renderMessages(){
    CHANNEL SUBSCRIPTION
    ============================================================ */
 function subscribeChannel(){
-  // detach old
   if(state.listenerRef){ try{ state.listenerRef.off(); }catch(e){} state.listenerRef=null; }
   state.messages = [];
 
@@ -634,7 +933,6 @@ function subscribeChannel(){
 
   if(isCurrentLocked()){ renderMessages(); return; }
 
-  // local fallback first
   state.messages = getLocalMessages(c.id);
   renderMessages();
 
@@ -708,13 +1006,12 @@ function sendMessage(){
   }
   const text = $('compose-input').value.trim();
   if(!text && !state.mediaUrl) return;
-  if(text && isBlocked(text)){ toast('⚠️ That word is blocked.'); return; }
+  if(text && isBlocked(text)){ toast('⚠️ That message contains blocked words.'); return; }
 
   const ts=Date.now();
   const c = currentChannel();
   const msgData = { name:state.chatName.trim(), text: text || 'Sent a GIF/Image', imageUrl: state.mediaUrl||null, timestamp:ts, isLocalTemp:true, key:`local_${ts}_${Math.random()}` };
 
-  // local persist
   const locals = getLocalMessages(c.id);
   localStorage.setItem(`local_messages_${c.id}`, JSON.stringify([...locals, msgData].slice(-100)));
 
@@ -881,7 +1178,6 @@ function bindNick(inp){
   inp.addEventListener('input', ()=>{
     state.chatName = inp.value;
     localStorage.setItem('chat_name', inp.value);
-    // sync both fields
     ['nickname-desktop','nickname-mobile'].forEach(id=>{ const el=$(id); if(el&&el!==inp) el.value=inp.value; });
     setSendState();
   });
@@ -891,6 +1187,7 @@ function init(){
   applyTheme(state.theme);
   renderEmoji();
   renderGifTags();
+  renderBlockedWordsList();
   bindNick($('nickname-desktop'));
   bindNick($('nickname-mobile'));
   setSendState();
@@ -928,13 +1225,18 @@ function init(){
   // unlock
   $('unlock-form').addEventListener('submit', unlockChannel);
 
+  // moderation modal
+  $('moderation-trigger').addEventListener('click', ()=>{ $('moderation-modal').classList.remove('hidden'); renderBlockedWordsList(); refreshIcons(); });
+  $('moderation-close').addEventListener('click', ()=> $('moderation-modal').classList.add('hidden'));
+  $('add-blocked-word-form').addEventListener('submit', (e)=>{ e.preventDefault(); const w=$('new-blocked-word').value; if(addBlockedWord(w)) $('new-blocked-word').value=''; });
+
   // theme modal
   $('theme-trigger').addEventListener('click', ()=>{ $('theme-modal').classList.remove('hidden'); refreshIcons(); });
   $('theme-trigger-mobile').addEventListener('click', ()=>{ $('theme-modal').classList.remove('hidden'); refreshIcons(); });
   $('theme-close').addEventListener('click', ()=> $('theme-modal').classList.add('hidden'));
 
   // close modals on backdrop click
-  ['create-modal','theme-modal'].forEach(id=>{
+  ['create-modal','theme-modal','moderation-modal'].forEach(id=>{
     $(id).addEventListener('click', (e)=>{ if(e.target.id===id) $(id).classList.add('hidden'); });
   });
 
